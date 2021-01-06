@@ -14,6 +14,8 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
   y_i_guesses = list()
   orig_mean = list()
   D = c()
+  is_synthesized = c()
+  synthesized_predictors = list()
   
   first = TRUE
   
@@ -25,9 +27,29 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
     utils::str(model <- model.frame(ff, origdata))
     X_i_org[[j]] <- model.matrix(ff, model)
     
+    is_synthesized[j] = paste(text = modelFormulas[[j]]$formula[[2]])
+    temp = c()
+    for (k in 1:length(is_synthesized)) {
+      if (is_synthesized[k] %in% paste(text=modelFormulas[[j]]$formula[[3]])) {
+        temp = append(temp, is_synthesized[k])
+      }
+    }
+    synthesized_predictors[[j]] = temp
     y_i[[j]] = as.numeric(origdata[i, paste(text = modelFormulas[[j]]$formula[[2]])])
     
-    orig_mean[[j]] = t(as.matrix(X_i_org[[j]][i, ])) %*% t(as.matrix(posteriorMCMCs[[j]][, !names(posteriorMCMCs[[j]]) %in% c("sigma")]))
+    
+    
+    
+    if (j == 2) {
+      #return(list(X_i_org[[j]], as.matrix((X_i_org[[j]][i, ]))))
+    }
+    
+    #orig_mean[[j]] = t(as.matrix(X_i_org[[j]][i, ])) %*% t(as.matrix(posteriorMCMCs[[j]][, !names(posteriorMCMCs[[j]]) %in% c("sigma")]))
+    
+    
+    
+    
+    
     
     
     y_i_guesses[[j]] = NULL
@@ -61,19 +83,36 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
     }
   }
   
-  CU_i_logZ_all <-rep(NA, sum(D))
+  CU_i_logZ_all <-rep(NA, prod(D))
   for (j in 1:length(CU_i_logZ_all)) {
     
-    q_sum_H = (densityCalc(y_i_guesses[[1]][((j-1) %% D[1])+1], syntype[1], list(orig_mean[[1]], posteriorMCMCs[[1]][, "sigma"]))
-               /densityCalc(y_i[[1]], syntype[1], list(orig_mean[[1]], posteriorMCMCs[[1]][, "sigma"])))
+    currentGuesses = index_to_guesses(j, D, y_i_guesses, is_synthesized)
+    #print(j)
+    #print(currentGuesses)
+    
+    temp = X_i_org[[1]][i, ]
+    for (k in 1:length(synthesized_predictors[[1]])) {
+      temp = replace(temp, synthesized_predictors[[1]][k], currentGuesses[synthesized_predictors[[1]][k]])
+    }
+    guessed_mean = t(as.matrix(temp)) %*% t(as.matrix(posteriorMCMCs[[1]][, !names(posteriorMCMCs[[1]]) %in% c("sigma")]))
+    
+    
+    q_sum_H = (densityCalc(y_i_guesses[[1]][((j-1) %% D[1])+1], syntype[1], list(guessed_mean, posteriorMCMCs[[1]][, "sigma"]))
+               /densityCalc(y_i[[1]], syntype[1], list(guessed_mean, posteriorMCMCs[[1]][, "sigma"])))
     
     
     #t(as.matrix(X_i_org[[j]][i, ])) %*% t(as.matrix(posteriorMCMCs[[j]][, !names(posteriorMCMCs[[j]]) %in% c("sigma")]))
     
     if (length(modelFormulas) > 1) {  
       for (l in 2:length(modelFormulas)) {
-        q_sum_H = q_sum_H * (densityCalc(y_i_guesses[[l]][get_index(D, j, l)], syntype[l], list(orig_mean[[l]], posteriorMCMCs[[l]][, "sigma"]))
-                             /densityCalc(y_i[[l]], syntype[l], list(orig_mean[[l]], posteriorMCMCs[[l]][, "sigma"])))
+        temp = X_i_org[[l]][i, ]
+        for (k in 1:length(synthesized_predictors[[l]])) {
+          temp = replace(temp, synthesized_predictors[[l]][k], currentGuesses[synthesized_predictors[[l]][k]])
+        }
+        guessed_mean = t(as.matrix(temp)) %*% t(as.matrix(posteriorMCMCs[[l]][, !names(posteriorMCMCs[[l]]) %in% c("sigma")]))
+        
+        q_sum_H = q_sum_H * (densityCalc(y_i_guesses[[l]][get_index(D, j, l)], syntype[l], list(guessed_mean, posteriorMCMCs[[l]][, "sigma"]))
+                             /densityCalc(y_i[[l]], syntype[l], list(guessed_mean, posteriorMCMCs[[l]][, "sigma"])))
         
       }
     }
@@ -88,20 +127,35 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
           posteriorMCMCs[[l]][h, "sigma"]))
       }
       log_p_h = sum(log(log_p_h))
+      
+      
+      
+      temp = X_i_org[[1]][i, ]
+      for (k in 1:length(synthesized_predictors[[1]])) {
+        temp = replace(temp, synthesized_predictors[[1]][k], currentGuesses[synthesized_predictors[[1]][k]])
+      }
+      guessed_mean = t(as.matrix(temp)) %*% t(as.matrix(posteriorMCMCs[[1]][h, !names(posteriorMCMCs[[1]]) %in% c("sigma")]))
+      
       log_q_h = (densityCalc(y_i_guesses[[1]][((j-1) %% D[1])+1],syntype[1],list(
-                  t(as.matrix(X_i_org[[1]][i, ])) %*% t(as.matrix(posteriorMCMCs[[1]][h, !names(posteriorMCMCs[[1]]) %in% c("sigma")])),
+                  guessed_mean,
                   posteriorMCMCs[[1]][h, "sigma"]))
                  /densityCalc(y_i[[1]], syntype[1], list(
-                  t(as.matrix(X_i_org[[1]][i, ])) %*% t(as.matrix(posteriorMCMCs[[1]][h, !names(posteriorMCMCs[[1]]) %in% c("sigma")])),
+                  guessed_mean,
                   posteriorMCMCs[[1]][h, "sigma"])))
       
       if (length(modelFormulas) > 1) {
         for (l in 2:length(modelFormulas)) {
+          temp = X_i_org[[l]][i, ]
+          for (k in 1:length(synthesized_predictors[[1]])) {
+            temp = replace(temp, synthesized_predictors[[1]][k], currentGuesses[synthesized_predictors[[1]][k]])
+          }
+          guessed_mean = t(as.matrix(temp)) %*% t(as.matrix(posteriorMCMCs[[l]][h, !names(posteriorMCMCs[[l]]) %in% c("sigma")]))
+          
           log_q_h = log_q_h * (densityCalc(y_i_guesses[[l]][get_index(D, j, l)],syntype[l],list(
-                                t(as.matrix(X_i_org[[l]][i, ])) %*% t(as.matrix(posteriorMCMCs[[l]][h, !names(posteriorMCMCs[[l]]) %in% c("sigma")])),
+                                guessed_mean,
                                 posteriorMCMCs[[l]][h, "sigma"]))
                                /densityCalc(y_i[[l]], syntype[l], list(
-                                t(as.matrix(X_i_org[[l]][i, ])) %*% t(as.matrix(posteriorMCMCs[[l]][h, !names(posteriorMCMCs[[l]]) %in% c("sigma")])),
+                                guessed_mean,
                                 posteriorMCMCs[[l]][h, "sigma"])))
         }
       }
@@ -156,5 +210,18 @@ get_index = function(D, j, l) {
     }
   }
   rtn = as.integer((j - 1) / cnt) + 1
+  return(rtn)
+}
+
+index_to_guesses = function(j, D, guesses, guess_names) {
+  rtn = c()
+  for (i in 1:length(D)) {
+    if (i == 1) {
+      rtn[i] = guesses[[i]][((j-1) %% D[i]) + 1] 
+    } else {
+      rtn[i] = guesses[[i]][as.integer((j-1) / D[i]) + 1]
+    }
+  }
+  names(rtn) = guess_names
   return(rtn)
 }
