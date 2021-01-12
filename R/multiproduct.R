@@ -91,8 +91,8 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
     #print(currentGuesses)
     guessed = guessed_mean(X_i_org[[1]][i, ], currentGuesses, synthesized_predictors, posteriorMCMCs, 1, -1)
     
-    q_sum_H = (densityCalc(y_i_guesses[[1]][((j-1) %% D[1])+1], syntype[1], list(guessed, posteriorMCMCs[[1]][, "sigma"]))
-               /densityCalc(y_i[[1]], syntype[1], list(orig_mean[[1]], posteriorMCMCs[[1]][, "sigma"])))
+    q_sum_H = (densityCalc(y_i_guesses[[1]][((j-1) %% D[1])+1], syntype[1], list(guessed, posteriorMCMCs[[1]][, "sigma"], D[1]))
+               /densityCalc(y_i[[1]], syntype[1], list(orig_mean[[1]], posteriorMCMCs[[1]][, "sigma"], D[1])))
     
     
     #t(as.matrix(X_i_org[[j]][i, ])) %*% t(as.matrix(posteriorMCMCs[[j]][, !names(posteriorMCMCs[[j]]) %in% c("sigma")]))
@@ -101,8 +101,8 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
       for (l in 2:length(modelFormulas)) {
         guessed = guessed_mean(X_i_org[[l]][i, ], currentGuesses, synthesized_predictors, posteriorMCMCs, l, -1)
         
-        q_sum_H = q_sum_H * (densityCalc(y_i_guesses[[l]][get_index(D, j, l)], syntype[l], list(guessed, posteriorMCMCs[[l]][, "sigma"]))
-                             /densityCalc(y_i[[l]], syntype[l], list(orig_mean[[l]], posteriorMCMCs[[l]][, "sigma"])))
+        q_sum_H = q_sum_H * (densityCalc(y_i_guesses[[l]][get_index(D, j, l)], syntype[l], list(guessed, posteriorMCMCs[[l]][, "sigma"], D[l]))
+                             /densityCalc(y_i[[l]], syntype[l], list(orig_mean[[l]], posteriorMCMCs[[l]][, "sigma"], D[l])))
         
       }
     }
@@ -114,7 +114,7 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
       for (l in 1:length(modelFormulas)) {
         log_p_h = log_p_h * densityCalc(as.numeric(syndata[, paste(text = modelFormulas[[l]]$formula[[2]])]), syntype[l], list(
           as.matrix(X_i_syn[[l]]) %*% t(as.matrix(posteriorMCMCs[[l]][h , !names(posteriorMCMCs[[l]]) %in% c("sigma")])),
-          posteriorMCMCs[[l]][h, "sigma"]))
+          posteriorMCMCs[[l]][h, "sigma"]), D[l])
       }
       log_p_h = sum(log(log_p_h))
       
@@ -122,10 +122,10 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
       
       log_q_h = (densityCalc(y_i_guesses[[1]][((j-1) %% D[1])+1],syntype[1],list(
                   guessed,
-                  posteriorMCMCs[[1]][h, "sigma"]))
+                  posteriorMCMCs[[1]][h, "sigma"], D[1]))
                  /densityCalc(y_i[[1]], syntype[1], list(
                    t(as.matrix(X_i_org[[1]][i, ])) %*% t(as.matrix(posteriorMCMCs[[1]][h, !names(posteriorMCMCs[[1]]) %in% c("sigma")])),
-                  posteriorMCMCs[[1]][h, "sigma"])))
+                  posteriorMCMCs[[1]][h, "sigma"], D[1])))
       
       if (length(modelFormulas) > 1) {
         for (l in 2:length(modelFormulas)) {
@@ -133,10 +133,10 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
 
           log_q_h = log_q_h * (densityCalc(y_i_guesses[[l]][get_index(D, j, l)],syntype[l],list(
                                 guessed,
-                                posteriorMCMCs[[l]][h, "sigma"]))
+                                posteriorMCMCs[[l]][h, "sigma"], D[l]))
                                /densityCalc(y_i[[l]], syntype[l], list(
                                 t(as.matrix(X_i_org[[l]][i, ])) %*% t(as.matrix(posteriorMCMCs[[l]][h, !names(posteriorMCMCs[[l]]) %in% c("sigma")])),
-                                posteriorMCMCs[[l]][h, "sigma"])))
+                                posteriorMCMCs[[l]][h, "sigma"], D[l])))
         }
       }
       
@@ -174,8 +174,13 @@ densityCalc = function (x, type, otherArgs) {
   } else if (type == "binom") {
     y = dbinom(x - 1, 1, logistic(otherArgs[[1]]))
     return(y)
+  } else if (type == "multinom") {
+    return(dmultinom(x, size = otherArgs[[3]], logistic(otherArgs[[1]])))
+  } else if (type == "pois") {
+    return(dpois(x, exp(otherArgs[[1]])))
+  } else {
+    stop(paste("Unknown variable type", type))
   }
-  
 }
 
 logistic = function (x) {
