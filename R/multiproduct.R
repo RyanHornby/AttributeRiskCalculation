@@ -7,7 +7,7 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
                                                      posteriorMCMCs, syntype, H = 50, G = 10, 
                                                      percentBounds = c(0.1, 0.1), 
                                                      additiveBounds = NULL, bounds = NULL,
-                                                     guesses = NULL) {
+                                                     guesses = NULL, simplePrior = NULL) {
   X_i_syn = list()
   X_i_org = list()
   y_i = list()
@@ -145,7 +145,23 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
       log_pq_h_all[h] = log_p_h + log_q_h
     }
     
-    CU_i_logZ_all[j] = logSumExp(log_pq_h_all)
+    if (!is.null(simplePrior)) {
+      true_value = TRUE
+      for (k in 1:length(currentGuesses)) {
+        if (currentGuesses[k] != origdata[i, is_synthesized[k]]) {
+          true_value = FALSE
+          break
+        }
+      }
+      denom = length(CU_i_logZ_all) + simplePrior - 1
+      if (true_value) {
+        CU_i_logZ_all[j] = logSumExp(log_pq_h_all) + (simplePrior / denom)
+      } else {
+        CU_i_logZ_all[j] = logSumExp(log_pq_h_all) + (1 / denom)
+      }
+    } else {
+      CU_i_logZ_all[j] = logSumExp(log_pq_h_all)
+    }
   }
   
   prob <-exp(CU_i_logZ_all- max(CU_i_logZ_all))/sum(exp(CU_i_logZ_all- max(CU_i_logZ_all)))
