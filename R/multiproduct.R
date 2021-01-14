@@ -32,6 +32,7 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
     for (k in 1:length(is_synthesized)) {
       if (is_synthesized[k] %in% paste(text=modelFormulas[[j]]$formula[[3]])) {
         temp = append(temp, is_synthesized[k])
+        #print(temp)
       }
     }
     synthesized_predictors[[j]] = temp
@@ -89,7 +90,9 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
     currentGuesses = index_to_guesses(j, D, y_i_guesses, is_synthesized)
     #print(j)
     #print(currentGuesses)
+    #print(paste("Orig Row:", X_i_org[[1]][i, ]))
     guessed = guessed_mean(X_i_org[[1]][i, ], currentGuesses, synthesized_predictors, posteriorMCMCs, 1, -1)
+    
     
     q_sum_H = (densityCalc(y_i_guesses[[1]][((j-1) %% D[1])+1], syntype[1], list(guessed, posteriorMCMCs[[1]][, "sigma"], D[1]))
                /densityCalc(y_i[[1]], syntype[1], list(orig_mean[[1]], posteriorMCMCs[[1]][, "sigma"], D[1])))
@@ -99,6 +102,7 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
     
     if (length(modelFormulas) > 1) {  
       for (l in 2:length(modelFormulas)) {
+        #print(paste("Orig Row:", X_i_org[[l]][i, ]))
         guessed = guessed_mean(X_i_org[[l]][i, ], currentGuesses, synthesized_predictors, posteriorMCMCs, l, -1)
         
         q_sum_H = q_sum_H * (densityCalc(y_i_guesses[[l]][get_index(D, j, l)], syntype[l], list(guessed, posteriorMCMCs[[l]][, "sigma"], D[l]))
@@ -114,7 +118,7 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
       for (l in 1:length(modelFormulas)) {
         log_p_h = log_p_h * densityCalc(as.numeric(syndata[, paste(text = modelFormulas[[l]]$formula[[2]])]), syntype[l], list(
           as.matrix(X_i_syn[[l]]) %*% t(as.matrix(posteriorMCMCs[[l]][h , !names(posteriorMCMCs[[l]]) %in% c("sigma")])),
-          posteriorMCMCs[[l]][h, "sigma"]), D[l])
+          posteriorMCMCs[[l]][h, "sigma"], D[l]))
       }
       log_p_h = sum(log(log_p_h))
       
@@ -229,11 +233,12 @@ index_to_guesses = function(j, D, guesses, guess_names) {
 
 guessed_mean = function(X_row, currentGuesses, synthesized_predictors, posteriorMCMCs, l, h) {
   temp = X_row
-  for (k in 1:length(synthesized_predictors[[1]])) {
-    temp = replace(temp, synthesized_predictors[[1]][k], currentGuesses[synthesized_predictors[[1]][k]])
+  for (k in 1:length(synthesized_predictors[[l]])) {
+    temp = replace(temp, synthesized_predictors[[l]][k], currentGuesses[synthesized_predictors[[l]][k]])
   }
   if (h == -1) {
     guessed = t(as.matrix(temp)) %*% t(as.matrix(posteriorMCMCs[[l]][, !names(posteriorMCMCs[[l]]) %in% c("sigma")]))
+    #print(paste("New Row:", temp))
   } else {
     guessed = t(as.matrix(temp)) %*% t(as.matrix(posteriorMCMCs[[l]][h, !names(posteriorMCMCs[[l]]) %in% c("sigma")]))
   }
