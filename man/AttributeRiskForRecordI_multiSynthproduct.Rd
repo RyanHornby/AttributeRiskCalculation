@@ -12,11 +12,12 @@ AttributeRiskForRecordI_multiSynthproduct(
   posteriorMCMCs,
   syntype,
   H = 50,
-  G = 10,
+  G = 11,
   percentBounds = c(0.1, 0.1),
   additiveBounds = NULL,
   bounds = NULL,
-  guesses = NULL
+  guesses = NULL,
+  simplePrior = NULL
 )
 }
 \description{
