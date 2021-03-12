@@ -16,7 +16,8 @@ AttributeRisk(
   additiveBounds = NULL,
   bounds = NULL,
   guesses = NULL,
-  simplePrior = NULL
+  simplePrior = NULL,
+  categorical = NULL
 )
 }
 \value{

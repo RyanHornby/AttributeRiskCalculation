@@ -12,19 +12,21 @@
 #' @export
 AttributeRisk = function(modelFormulas, origdata, syndata, posteriorMCMCs, syntype, H = 50,
                          G = 11, percentBounds = c(0.1, 0.1), additiveBounds = NULL, 
-                         bounds = NULL, guesses = NULL, simplePrior = NULL) {
+                         bounds = NULL, guesses = NULL, simplePrior = NULL, categorical = NULL) {
   
   rtn = list()
   pb <- progress_bar$new(format = "[:bar] :percent eta: :eta", total = length(origdata[, 1]))
   pb$tick(0)
   
   for (i in 1:length(origdata[, 1])) {
-    temp = AttributeRiskForRecordI_multiSynthproduct(modelFormulas, i, origdata, syndata, 
+    temp = AttributeRiskForRecordI(modelFormulas, i, origdata, syndata, 
                                               posteriorMCMCs, syntype, H, G,
                                               percentBounds, additiveBounds, bounds,
-                                              guesses, simplePrior)
+                                              guesses, simplePrior, categorical)
 
-    rtn[[i]] = list(FullProb = temp[[1]], TrueMarginals = temp[[2]], TrueValProb = temp[[3]], RankHighest = temp[[4]][1, ], RankTrue = temp[[4]][which(temp[[4]][, 2] == temp[[3]])])
+    rtn[[i]] = list(FullProb = temp[[1]], TrueMarginals = temp[[2]], TrueValProb = temp[[3]],
+                    RankHighest = temp[[4]][1, ], RankTrue = temp[[4]][which(temp[[4]][, 2] == temp[[3]])],
+                    MarginalAbsDiffs = temp[[5]])
     
     pb$tick()
   }
@@ -32,15 +34,16 @@ AttributeRisk = function(modelFormulas, origdata, syndata, posteriorMCMCs, synty
   return(rtn)
 }
 
-#' AttributeRiskForRecordI_multiSynthproduct
+#' AttributeRiskForRecordI
 #'
 #' @import matrixStats
 #' @export
-AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata, syndata, 
+AttributeRiskForRecordI = function(modelFormulas, i, origdata, syndata, 
                                                      posteriorMCMCs, syntype, H = 50, G = 11, 
                                                      percentBounds = c(0.1, 0.1), 
                                                      additiveBounds = NULL, bounds = NULL,
-                                                     guesses = NULL, simplePrior = NULL) {
+                                                     guesses = NULL, simplePrior = NULL,
+                                                     categorical = NULL) {
   X_i_syn = list()
   X_i_org = list()
   y_i = list()
@@ -49,14 +52,20 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
   D = c()
   true_value_indx = c()
   is_synthesized = c()
-  is_categorical = c()
+  is_factor = c()
   synthesized_predictors = list()
   
   first = TRUE
   
   for (j in 1:length(modelFormulas)) {
     
-    is_categorical[j] = paste(text = modelFormulas[[j]]$formula[[2]]) %in% names(Filter(is.factor, origdata))
+    if (is.null(categorical)) {
+      is_factor[j] = paste(text = modelFormulas[[j]]$formula[[2]]) %in% names(Filter(is.factor, origdata))
+    } else {
+      is_factor[j] = FALSE
+    }
+    
+    
     
     ff = as.formula(modelFormulas[[j]])
     
@@ -76,28 +85,38 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
     }
     synthesized_predictors[[j]] = temp
     
-    if (is_categorical[j]) {
-      y_i[[j]] = as.numeric(origdata[i, paste(text = modelFormulas[[j]]$formula[[2]])]) - 1
-    } else {
+    if (is_factor[j]) {
       y_i[[j]] = as.numeric(origdata[i, paste(text = modelFormulas[[j]]$formula[[2]])])
+    } else {
+      y_i[[j]] = origdata[i, paste(text = modelFormulas[[j]]$formula[[2]])]
     }
     
-    orig_mean[[j]] = t(as.matrix(X_i_org[[j]][i, ])) %*% t(as.matrix(posteriorMCMCs[[j]][, !names(posteriorMCMCs[[j]]) %in% c("sigma")]))
+    if (syntype[j] != "multinom") {
+      orig_mean[[j]] = t(as.matrix(X_i_org[[j]][i, ])) %*% t(as.matrix(posteriorMCMCs[[j]][, !names(posteriorMCMCs[[j]]) %in% c("sigma")]))
+    }
     
     y_i_guesses[[j]] = NULL
-    if (is_categorical[j]) {
+    if (is_factor[j]) {
       y_i_guesses[[j]] = as.numeric(levels(origdata[, paste(text = modelFormulas[[j]]$formula[[2]])]))
       D[j] = length(y_i_guesses[[j]])
+    } else if (!is.null(categorical) && categorical[j]) {
+      y_i_guesses[[j]] = unique(origdata[, paste(text = modelFormulas[[j]]$formula[[2]])])
+      D[j] = length(y_i_guesses[[j]])
     } else {
-      D[j] = G
-      if (is.null(guesses) == FALSE) {
-        y_i_guesses[[j]] = guesses
-      } else if (is.null(additiveBounds) == FALSE) {
-        y_i_guesses[[j]] = seq(y_i[[j]] - additiveBounds[1], y_i[[j]] + additiveBounds[2], length.out = G)
-      } else if (is.null(bounds) == FALSE) {
-        y_i_guesses[[j]] = seq(bounds[1], bounds[2], length.out = G)
+      if (length(G) == 1) {
+        D[j] = G
       } else {
-        y_i_guesses[[j]] = seq(y_i[[j]] * (1 - percentBounds[1]), y_i[[j]] * (1 + percentBounds[2]), length.out = G)
+        D[j] = G[j]
+      }
+      
+      if (is.null(guesses) == FALSE) {
+        y_i_guesses[[j]] = guesses[[j]]
+      } else if (is.null(additiveBounds) == FALSE) {
+        y_i_guesses[[j]] = seq(y_i[[j]] - additiveBounds[1], y_i[[j]] + additiveBounds[2], length.out = D[j])
+      } else if (is.null(bounds) == FALSE) {
+        y_i_guesses[[j]] = seq(bounds[1], bounds[2], length.out = D[j])
+      } else {
+        y_i_guesses[[j]] = seq(y_i[[j]] * (1 - percentBounds[1]), y_i[[j]] * (1 + percentBounds[2]), length.out = D[j])
       }
     }
     
@@ -131,23 +150,25 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
     #print(currentGuesses)
     #print("Orig Row:")
     #print(X_i_org[[1]][i, ])
-    guessed = guessed_mean(origdata, i, as.formula(modelFormulas[[1]]), currentGuesses, synthesized_predictors, posteriorMCMCs, 1, -1)
+    guessed = guessed_mean(origdata, i, as.formula(modelFormulas[[1]]), currentGuesses, synthesized_predictors, posteriorMCMCs, syntype, 1, -1)
     
     
-    q_sum_H = (densityCalc(y_i_guesses[[1]][((j-1) %% D[1])+1], syntype[1], guessed, posteriorMCMCs[[1]][, "sigma"], D[1])
-               /densityCalc(y_i[[1]], syntype[1], orig_mean[[1]], posteriorMCMCs[[1]][, "sigma"], D[1]))
+    #print(y_i[[1]])
     
+    q_sum_H = (densityCalc(y_i_guesses[[1]][((j-1) %% D[1])+1], syntype[1], guessed, posteriorMCMCs[[1]][, "sigma"], D[1], posteriorMCMCs[[1]])
+               /densityCalc(y_i[[1]], syntype[1], orig_mean[[1]], posteriorMCMCs[[1]][, "sigma"], D[1], posteriorMCMCs[[1]]))
     
+    #print(q_sum_H)
     #t(as.matrix(X_i_org[[j]][i, ])) %*% t(as.matrix(posteriorMCMCs[[j]][, !names(posteriorMCMCs[[j]]) %in% c("sigma")]))
     
     if (length(modelFormulas) > 1) {  
       for (l in 2:length(modelFormulas)) {
         #print("Orig Row:")
         #print(X_i_org[[l]][i, ])
-        guessed = guessed_mean(origdata, i, as.formula(modelFormulas[[l]]), currentGuesses, synthesized_predictors, posteriorMCMCs, l, -1)
+        guessed = guessed_mean(origdata, i, as.formula(modelFormulas[[l]]), currentGuesses, synthesized_predictors, posteriorMCMCs, syntype, l, -1)
         
-        q_sum_H = q_sum_H * (densityCalc(y_i_guesses[[l]][get_index(D, j, l)], syntype[l], guessed, posteriorMCMCs[[l]][, "sigma"], D[l])
-                             /densityCalc(y_i[[l]], syntype[l], orig_mean[[l]], posteriorMCMCs[[l]][, "sigma"], D[l]))
+        q_sum_H = q_sum_H * (densityCalc(y_i_guesses[[l]][get_index(D, j, l)], syntype[l], guessed, posteriorMCMCs[[l]][, "sigma"], D[l], posteriorMCMCs[[l]])
+                             /densityCalc(y_i[[l]], syntype[l], orig_mean[[l]], posteriorMCMCs[[l]][, "sigma"], D[l], posteriorMCMCs[[l]]))
         
       }
     }
@@ -157,37 +178,37 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
     for(h in 1:H) {
       log_p_h = 1
       for (l in 1:length(modelFormulas)) {
-        if (is_categorical[l]) {
+        if (is_factor[l]) {
           log_p_h = log_p_h * densityCalc(as.numeric(syndata[, paste(text = modelFormulas[[l]]$formula[[2]])]) - 1, syntype[l], 
                                           as.matrix(X_i_syn[[l]]) %*% t(as.matrix(posteriorMCMCs[[l]][h , !names(posteriorMCMCs[[l]]) %in% c("sigma")])),
-                                          posteriorMCMCs[[l]][h, "sigma"], D[l])
+                                          posteriorMCMCs[[l]][h, "sigma"], D[l], posteriorMCMCs[[l]][h, ])
         } else {
-          log_p_h = log_p_h * densityCalc(as.numeric(syndata[, paste(text = modelFormulas[[l]]$formula[[2]])]), syntype[l], 
+          log_p_h = log_p_h * densityCalc(syndata[, paste(text = modelFormulas[[l]]$formula[[2]])], syntype[l], 
                                           as.matrix(X_i_syn[[l]]) %*% t(as.matrix(posteriorMCMCs[[l]][h , !names(posteriorMCMCs[[l]]) %in% c("sigma")])),
-                                          posteriorMCMCs[[l]][h, "sigma"], D[l])
+                                          posteriorMCMCs[[l]][h, "sigma"], D[l], posteriorMCMCs[[l]][h, ])
         }
       }
       log_p_h = sum(log(log_p_h))
       
-      guessed = guessed_mean(origdata, i, as.formula(modelFormulas[[1]]), currentGuesses, synthesized_predictors, posteriorMCMCs, 1, h)
+      guessed = guessed_mean(origdata, i, as.formula(modelFormulas[[1]]), currentGuesses, synthesized_predictors, posteriorMCMCs, syntype, 1, h)
       
       log_q_h = (densityCalc(y_i_guesses[[1]][((j-1) %% D[1])+1],syntype[1],
                   guessed,
-                  posteriorMCMCs[[1]][h, "sigma"], D[1])
+                  posteriorMCMCs[[1]][h, "sigma"], D[1], posteriorMCMCs[[1]][h, ])
                  /densityCalc(y_i[[1]], syntype[1],
                    t(as.matrix(X_i_org[[1]][i, ])) %*% t(as.matrix(posteriorMCMCs[[1]][h, !names(posteriorMCMCs[[1]]) %in% c("sigma")])),
-                  posteriorMCMCs[[1]][h, "sigma"], D[1]))
+                  posteriorMCMCs[[1]][h, "sigma"], D[1], posteriorMCMCs[[1]][h, ]))
       
       if (length(modelFormulas) > 1) {
         for (l in 2:length(modelFormulas)) {
-          guessed = guessed_mean(origdata, i, as.formula(modelFormulas[[l]]), currentGuesses, synthesized_predictors, posteriorMCMCs, l, h)
+          guessed = guessed_mean(origdata, i, as.formula(modelFormulas[[l]]), currentGuesses, synthesized_predictors, posteriorMCMCs, syntype, l, h)
 
           log_q_h = log_q_h * (densityCalc(y_i_guesses[[l]][get_index(D, j, l)],syntype[l],
                                 guessed,
-                                posteriorMCMCs[[l]][h, "sigma"], D[l])
+                                posteriorMCMCs[[l]][h, "sigma"], D[l], posteriorMCMCs[[l]][h, ])
                                /densityCalc(y_i[[l]], syntype[l],
                                 t(as.matrix(X_i_org[[l]][i, ])) %*% t(as.matrix(posteriorMCMCs[[l]][h, !names(posteriorMCMCs[[l]]) %in% c("sigma")])),
-                                posteriorMCMCs[[l]][h, "sigma"], D[l]))
+                                posteriorMCMCs[[l]][h, "sigma"], D[l], posteriorMCMCs[[l]][h, ]))
         }
       }
       
@@ -224,13 +245,15 @@ AttributeRiskForRecordI_multiSynthproduct = function(modelFormulas, i, origdata,
   if (length(modelFormulas) > 1) {
     for (j in 1:(length(modelFormulas)-1)) {
       true_val_string = paste(true_val_string, true_value_indx[j], ",", sep = "")
-      #marginals[j] = sum(eval(parse(text=paste("outcome[", strrep(",", j - 1), y_i[[j]], strrep(",", length(modelFormulas) - j), "]", sep = ""))))
+      marginals[j] = sum(eval(parse(text=paste("outcome[", strrep(",", j - 1), true_value_indx[j], strrep(",", length(modelFormulas) - j), "]", sep = ""))))
     }
   }
-  true_val_string = paste(true_val_string, true_value_indx[[length(modelFormulas)]], "]", sep = "")
-  #marginals[length(modelFormulas)] = sum(eval(parse(text=paste("outcome[", paste(strrep(",", length(modelFormulas) - 1), y_i[[length(modelFormulas)]], "]", sep = "")))))
+  true_val_string = paste(true_val_string, true_value_indx[length(modelFormulas)], "]", sep = "")
+  marginals[length(modelFormulas)] = sum(eval(parse(text=paste("outcome[", paste(strrep(",", length(modelFormulas) - 1), true_value_indx[length(modelFormulas)], "]", sep = "")))))
   
-  return(list(FullProb = outcome, TrueMarginals = marginals, TrueValProb = eval(parse(text = true_val_string)), Ranks = get_ranks(outcome, is_synthesized)))
+  diffs = get_abs_diff(outcome, origdata, y_i, y_i_guesses, D)
+  
+  return(list(FullProb = outcome, TrueMarginals = marginals, TrueValProb = eval(parse(text = true_val_string)), Ranks = get_ranks(outcome, is_synthesized), AbsDiff = diffs))
   
 }
 #'
@@ -258,14 +281,18 @@ randomGuessPlot = function(risks, custom_palette = NULL) {
   return(plt)
 }
 
-densityCalc = function (x, type, otherArg1, otherArg2, otherArg3) {
+densityCalc = function (x, type, otherArg1, otherArg2, otherArg3, otherArg4) {
   if (type == "norm") {
     return(dnorm(x, otherArg1, otherArg2))
   } else if (type == "binom") {
     y = dbinom(x - 1, 1, logistic(otherArg1))
     return(y)
   } else if (type == "multinom") {
-    return(dmultinom(x, size = otherArg3, logistic(otherArg1)))
+    if (is.null(nrow(otherArg4))) {
+      return(otherArg4[x])
+    } else {
+      return(otherArg4[, x])
+    }
   } else if (type == "pois") {
     return(dpois(x, exp(otherArg1)))
   } else {
@@ -301,7 +328,9 @@ index_to_guesses = function(j, D, guesses, guess_names) {
   return(rtn)
 }
 
-guessed_mean = function(origdata, i, model_formula, currentGuesses, synthesized_predictors, posteriorMCMCs, l, h) {
+guessed_mean = function(origdata, i, model_formula, currentGuesses, synthesized_predictors, posteriorMCMCs, syntype, l, h) {
+  if (syntype[l] == "multinom") {return(NULL)}
+  
   temp = origdata[i, ]
   if (length(synthesized_predictors) > 1) {
     for (j in 1:length(synthesized_predictors[[l]])) {
@@ -338,4 +367,29 @@ get_ranks = function(full_prob, guessed_names) {
   rtn = cbind(1:(length(rtn[,1])), rtn)
   colnames(rtn) = c("rank", "prob", guessed_names)
   return(rtn)
+}
+
+get_abs_diff = function(output, origdata, y_i, y_i_guesses, D) {
+  rtn = c()
+  N = length(y_i)
+  for (i in 1:N) {
+    indx = 0
+    max_marg = 0
+    for (j in 1:D[i]) {
+      temp = sum(eval(parse(text=paste("output[", strrep(",", i-1), j, strrep(",", N-i), "]", sep = ""))))
+      if (temp > max_marg) {
+        max_marg = temp
+        indx = j
+      }
+    }
+    
+    rtn[i] = y_i[[i]] - y_i_guesses[[i]][indx]  
+    
+    if (i < N) {
+      #rtn[i] = y_i[[i]] - eval(parse(text=paste("names(output[", strrep("1,", i-1), ",", strrep("1,", N-i-1), "1])[", indx, "]", sep="")))
+    } else {
+      #rtn[i] = y_i[[i]] - eval(parse(text=paste("names(output[", strrep("1,", i-1), "])[", indx, "]", sep="")))
+    }
+  }
+  return(abs(rtn))
 }
