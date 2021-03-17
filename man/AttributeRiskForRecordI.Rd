@@ -21,6 +21,49 @@ AttributeRiskForRecordI(
   categorical = NULL
 )
 }
+\arguments{
+\item{modelFormulas}{A list of synthesis formulas, or formula like objects (\code{\link[brms]{bf}} for example), in order of synthesis.}
+
+\item{i}{The record to estimate the risk for.}
+
+\item{origdata}{A dataframe of the confidential dataset.}
+
+\item{syndata}{A list of the synthetic dataset(s).}
+
+\item{posteriorMCMCs}{A list, in order of synthesis, of the MCMC parameter draws.}
+
+\item{syntype}{A vector, in order of synthesis, of strings describing the synthesis model. Currently supported models are: norm, binom, multinom, and pois.}
+
+\item{H}{A scalar determining the amount of iterations. Higher values provide a more accurate estimate but will take longer to compute.}
+
+\item{G}{A vector, in order of synthesis, or a scalar describing the number of guesses (including the confidential value) to evaluate. In the case of a scalar G, that value will be applied to all continuous variables.}
+
+\item{percentBounds}{A two element vector determining the lowest and highest guesses. By default the lowest and highest guesses will be 10\% below and 10\% above the confidential value respectively.}
+
+\item{additiveBounds}{A two element vector determining the lowest and highest guesses. The lowest guess will be the confidential value minus the first value while the highest will be the confidential value plus the second value.}
+
+\item{bounds}{A two element vector determining the lowest and highest guesses. These guess values are set to be the values from this vector.}
+
+\item{guesses}{A list, in order of synthesis, containing vectors of guesses for each synthesized variable.}
+
+\item{simplePrior}{A scalar determining how much more (or less) likely the confidential value is believed to be guessed.}
+
+\item{categorical}{A vector, in order of synthesis, of booleans denoting if the synthesized variable is to be treated as categorical (guesses set to all values seen in the dataset).}
+}
+\value{
+a list of lists (one for each record), where each inner list contains the following:
+\itemize{
+\item The full probability matrix.
+\item The marginal probabilities.
+\item The true value probability.
+\item The ranking of the probabilities of all the guesses.
+\item The marginal absolute difference between the guesses with the highest probability and the true values.
+}
+}
 \description{
-AttributeRiskForRecordI
+Calculates the attribute disclosure risk for single records in sequentially 
+synthesized datasets. Categorical variables are identified either by factors 
+or by the categorical arg. If strange/unexpected behavior is seen with factors,
+try identifying categorical variables with the additional argument and remove 
+factors from the dataset.
 }

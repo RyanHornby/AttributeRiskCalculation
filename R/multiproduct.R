@@ -1,13 +1,35 @@
 
 #' AttributeRisk
+#' 
+#' Calculates the attribute disclosure risk for sequentially synthesized datasets.
+#' Categorical variables are identified either by factors or by the categorical arg.
+#' If strange/unexpected behavior is seen with factors, try identifying categorical
+#' variables with the additional argument and remove factors from the dataset.
+#' 
+#' @param modelFormulas A list of synthesis formulas, or formula like objects (\code{\link[brms]{bf}} for example), in order of synthesis.
+#' @param origdata A dataframe of the confidential dataset.
+#' @param syndata A list of the synthetic dataset(s).
+#' @param posteriorMCMCs A list, in order of synthesis, of the MCMC parameter draws.
+#' @param syntype A vector, in order of synthesis, of strings describing the synthesis model. Currently supported models are: norm, binom, multinom, and pois.
+#' @param G A vector, in order of synthesis, or a scalar describing the number of guesses (including the confidential value) to evaluate. In the case of a scalar G, that value will be applied to all continuous variables.
+#' @param H A scalar determining the amount of iterations. Higher values provide a more accurate estimate but will take longer to compute.
+#' @param percentBounds A two element vector determining the lowest and highest guesses. By default the lowest and highest guesses will be 10\% below and 10\% above the confidential value respectively.
+#' @param additiveBounds A two element vector determining the lowest and highest guesses. The lowest guess will be the confidential value minus the first value while the highest will be the confidential value plus the second value.
+#' @param bounds A two element vector determining the lowest and highest guesses. These guess values are set to be the values from this vector.
+#' @param guesses A list, in order of synthesis, containing vectors of guesses for each synthesized variable.
+#' @param simplePrior A scalar determining how much more (or less) likely the confidential value is believed to be guessed.
+#' @param categorical A vector, in order of synthesis, of booleans denoting if the synthesized variable is to be treated as categorical (guesses set to all values seen in the dataset).
+#' 
 #' @return a list of lists (one for each record), where each inner list contains the following:
 #' \itemize{
-#' \item The full probability matrix
-#' \item Marginal probabilities
-#' \item The true value probability
-#' \item The ranking of the guess with the highest probability
-#' \item The ranking of the true value
+#' \item The full probability matrix.
+#' \item The marginal probabilities.
+#' \item The true value probability.
+#' \item The ranking of the guess with the highest probability.
+#' \item The ranking of the true value.
+#' \item The marginal absolute difference between the guesses with the highest probability and the true values.
 #' }
+#' 
 #' @import progress
 #' @export
 AttributeRisk = function(modelFormulas, origdata, syndata, posteriorMCMCs, syntype, H = 50,
@@ -35,7 +57,35 @@ AttributeRisk = function(modelFormulas, origdata, syndata, posteriorMCMCs, synty
 }
 
 #' AttributeRiskForRecordI
-#'
+#' 
+#' Calculates the attribute disclosure risk for single records in sequentially 
+#' synthesized datasets. Categorical variables are identified either by factors 
+#' or by the categorical arg. If strange/unexpected behavior is seen with factors,
+#' try identifying categorical variables with the additional argument and remove 
+#' factors from the dataset.
+#' 
+#' @param modelFormulas A list of synthesis formulas, or formula like objects (\code{\link[brms]{bf}} for example), in order of synthesis.
+#' @param i The record to estimate the risk for.
+#' @param origdata A dataframe of the confidential dataset.
+#' @param syndata A list of the synthetic dataset(s).
+#' @param posteriorMCMCs A list, in order of synthesis, of the MCMC parameter draws.
+#' @param syntype A vector, in order of synthesis, of strings describing the synthesis model. Currently supported models are: norm, binom, multinom, and pois.
+#' @param G A vector, in order of synthesis, or a scalar describing the number of guesses (including the confidential value) to evaluate. In the case of a scalar G, that value will be applied to all continuous variables.
+#' @param H A scalar determining the amount of iterations. Higher values provide a more accurate estimate but will take longer to compute.
+#' @param percentBounds A two element vector determining the lowest and highest guesses. By default the lowest and highest guesses will be 10\% below and 10\% above the confidential value respectively.
+#' @param additiveBounds A two element vector determining the lowest and highest guesses. The lowest guess will be the confidential value minus the first value while the highest will be the confidential value plus the second value.
+#' @param bounds A two element vector determining the lowest and highest guesses. These guess values are set to be the values from this vector.
+#' @param guesses A list, in order of synthesis, containing vectors of guesses for each synthesized variable.
+#' @param simplePrior A scalar determining how much more (or less) likely the confidential value is believed to be guessed.
+#' @param categorical A vector, in order of synthesis, of booleans denoting if the synthesized variable is to be treated as categorical (guesses set to all values seen in the dataset).
+#' @return a list of lists (one for each record), where each inner list contains the following:
+#' \itemize{
+#' \item The full probability matrix.
+#' \item The marginal probabilities.
+#' \item The true value probability.
+#' \item The ranking of the probabilities of all the guesses.
+#' \item The marginal absolute difference between the guesses with the highest probability and the true values.
+#' }
 #' @import matrixStats
 #' @export
 AttributeRiskForRecordI = function(modelFormulas, i, origdata, syndata, 
@@ -271,8 +321,18 @@ AttributeRiskForRecordI = function(modelFormulas, i, origdata, syndata,
   return(list(FullProb = outcome, TrueMarginals = marginals, TrueValProb = eval(parse(text = true_val_string)), Ranks = get_ranks(outcome, is_synthesized), AbsDiff = diffs))
   
 }
+
+#' randomGuessPlot
+#' 
+#' Produces a graph of the probabilities of each guess with a line indicating 
+#' the chance of randomly guessing the confidential value(s) from among the 
+#' guesses.
+#' 
+#' @param risks List containing the true value probabilities (output from \code{\link[AttributeRiskCalculation]{AttributeRisk}})
+#' @param custom_palette Vector of color values to use for the plot. Will use the first value for the density and the last for the vertical line.
+#' @return A ggplot plot object containing the desired plot.
 #'
-#'
+#' @import ggplot2
 #' @export
 randomGuessPlot = function(risks, custom_palette = NULL) {
   true_risks = c()
@@ -300,7 +360,7 @@ densityCalc = function (x, type, otherArg1, otherArg2, otherArg3, otherArg4) {
   if (type == "norm") {
     return(dnorm(x, otherArg1, otherArg2))
   } else if (type == "binom") {
-    y = dbinom(x - 1, 1, logistic(otherArg1))
+    y = dbinom(x, 1, logistic(otherArg1))
     return(y)
   } else if (type == "multinom") {
     if (is.null(nrow(otherArg4))) {
